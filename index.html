@@ -97,7 +97,8 @@
   .s-roster{margin:12px 26px 4px}
   .s-roster h3{font-size:12px;letter-spacing:1px;text-transform:uppercase;color:var(--c3-blue);margin:0 0 6px}
   table.rep{width:100%;border-collapse:collapse;font-size:11px}
-  table.rep th{background:var(--c3-navy);color:#fff;padding:5px 6px;text-align:left;font-size:9.5px;letter-spacing:.4px;text-transform:uppercase}
+  table.rep th{background:var(--c3-navy);color:#fff;padding:5px 6px;text-align:center;font-size:9.5px;letter-spacing:.4px;text-transform:uppercase}
+  table.rep th.lft{text-align:left}
   table.rep td{padding:4px 6px;border-bottom:1px solid #e8eef5}
   table.rep tr:nth-child(even) td{background:#f6f9fc}
   table.rep td.num{text-align:center;font-weight:700;color:var(--c3-navy)}
@@ -331,7 +332,7 @@ function daysInSelectedMonth(){
    store traffic   = daily traffic × days in selected month
    Store XM        = ceil(store traffic × mobile close rate%)        Rep XM  = ceil(Store XM / reps)
    Store RGU       = ceil(store traffic × Excel col-E close rate%)   Rep RGU = ceil(Store RGU / reps)
-   Store Watch/Tab = ceil(store traffic × 3%)                        Rep W/T = ceil(Store W/T / reps)
+   Store Watch/Tab = ceil(store traffic × 2%)                        Rep W/T = ceil(Store W/T / reps)
    Store Accessory = ceil(Store XM × $20)                            Rep Acc = ceil(Store Acc / reps)
    Store T-Sheet   = ceil(store traffic × 20%)   Rep T-Sheet = ceil((store traffic / reps) × 20%)
    Rep GP          = ceil(Store GP / reps)        Daily commission = ceil(commission / 22)
@@ -348,7 +349,7 @@ function compute(){
   const monthly=daily*days;
   const storeXM=C(monthly*(cr/100));
   const storeRGU=C(monthly*(fcr/100));
-  const storeWT=C(monthly*0.03);
+  const storeWT=C(monthly*0.02);
   const storeAcc=C(storeXM*20);
   const storeTS=C(monthly*0.20);
   return {daily,reps,cr,fcr,gp:C(gp),comm:C(comm),days,monthly:C(monthly),empTraffic:C(monthly/reps),
@@ -401,7 +402,7 @@ function generate(){
       </div>
     </div>
     <div class="s-roster"><h3>Individual Rep Commitments — ${short}</h3>
-      <table class="rep"><thead><tr><th>#</th><th>Representative</th><th>GP</th><th>XM</th><th>RGU</th><th>W/T</th><th>Acc $</th><th>T-Sheet</th><th>$/Shift</th></tr></thead>
+      <table class="rep"><thead><tr><th>#</th><th class="lft">Representative</th><th>GP</th><th>XM</th><th>RGU</th><th>W/T</th><th>Acc $</th><th>T-Sheet</th><th>Commission Needed Per Shift</th></tr></thead>
       <tbody>${repRows}</tbody></table></div>
     <div class="s-pledge">This month, our goal is to see every rep over <b>${money(c.comm)}</b> in monthly commission —
       a minimum of <b>${money(c.dailyComm)}</b> per shift. We estimate <b>${num(c.monthly)}</b> door swings this month,
@@ -439,7 +440,7 @@ function buildEmailHTML(c,short,period,mgr,repTargets){
   const storeTbl=`<table cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse">
     ${sg('Store GP Goal',money(c.gp))}${sg('Store XM Goal',num(c.storeXM))}${sg('Store RGU Goal',num(c.storeRGU))}
     ${sg('Store Watch / Tablet',num(c.storeWT))}${sg('Store Accessory',money(c.storeAcc))}${sg('Store T-Sheet Goal',num(c.storeTS))}</table>`;
-  const repHdr=['#','Representative','GP','XM','RGU','W/T','Acc $','T-Sheet','$/Shift']
+  const repHdr=['#','Representative','GP','XM','RGU','W/T','Acc $','T-Sheet','Commission Needed Per Shift']
     .map((h,i)=>`<th style="background:${NAVY};color:#fff;font:700 11px Arial;padding:6px 7px;text-align:${i<2?'left':'center'}">${h}</th>`).join('');
   const repBody=(repTargets.length?repTargets:[{name:'Sales Rep'}]).map((p,i)=>`<tr style="background:${i%2?'#f6f9fc':'#fff'}">
     <td style="border-bottom:1px solid #e8eef5;padding:5px 7px;font:700 11px Arial;text-align:center">${i+1}</td>
