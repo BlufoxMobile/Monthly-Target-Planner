@@ -511,6 +511,8 @@ async function submitToZapier(){
     const mgr=document.getElementById('mgrName').value;
     const subject='Monthly Target Sheet — '+short+' — '+period;
     const emailHTML=buildEmailHTML(c,short,period,mgr,repTargets);
+    // upload PDF to repo → public URL Zapier can attach as a real .pdf
+    let pdfUrl=''; if(pdfB64){ b.textContent='Uploading PDF…'; try{ pdfUrl=await uploadPdfToRepo(pdfB64,short,period); }catch(e){ pdfUrl=''; } b.textContent='Submitting…'; }
     const payload={ submittedAt:new Date().toISOString(), period,
       store:short, storeManager:mgr,
       managerEmail:document.getElementById('mgrEmail').value, dmEmail:document.getElementById('dmEmail').value,
@@ -521,7 +523,7 @@ async function submitToZapier(){
       repGoals:{gp:Math.round(c.repGP),xm:Math.round(c.repXM),rgu:Math.round(c.repRGU),watchTablet:Math.round(c.repWT),accessory:Math.round(c.repAcc),tsheet:Math.round(c.repTS)},
       reps_detail:repTargets,
       subject, emailHTML,
-      pdfBase64:pdfB64, pdfDataUri:pdfUri, pdfFilename:'C3_Target_'+short.replace(/\s+/g,'_')+'.pdf' };
+      pdfUrl, pdfBase64:pdfB64, pdfDataUri:pdfUri, pdfFilename:'C3_Target_'+short.replace(/\s+/g,'_')+'.pdf' };
     await fetch(ZAPIER_HOOK,{method:'POST',mode:'no-cors',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     st('subStatus','✓ Submitted! Targets sent to <b>'+payload.managerEmail+'</b> and the DM via Zapier, with the PDF attached.','good');
     b.textContent='✓ Submitted';
@@ -563,13 +565,26 @@ document.getElementById('xlsx').addEventListener('change',function(ev){
 });
 
 /* ====== ADMIN: save to GitHub ====== */
-async function ghGetSha(){
+async function ghGetShaFor(path){
   try{
-    const url=`${GH.API}/repos/${GH.OWNER}/${GH.NAME}/contents/${GH.PATH}?ref=${GH.BRANCH}&_=${Date.now()}`;
+    const url=`${GH.API}/repos/${GH.OWNER}/${GH.NAME}/contents/${path}?ref=${GH.BRANCH}&_=${Date.now()}`;
     const r=await fetch(url,{headers:{'Accept':'application/vnd.github+json','Authorization':'Bearer '+EMBEDDED_TOKEN}});
     if(r.status===404)return null; if(!r.ok)throw new Error('HTTP '+r.status);
     return (await r.json()).sha;
   }catch(e){ return null; }
+}
+async function ghGetSha(){ return ghGetShaFor(GH.PATH); }
+/* upload the generated PDF to the repo and return its public raw URL (for Zapier to attach) */
+async function uploadPdfToRepo(pdfB64, short, period){
+  const path='data/target-pdfs/'+(short+'_'+period).replace(/[^A-Za-z0-9_-]+/g,'_')+'.pdf';
+  const sha=await ghGetShaFor(path);
+  const body={ message:'Target PDF — '+short+' '+period, content:pdfB64, branch:GH.BRANCH };
+  if(sha)body.sha=sha;
+  const r=await fetch(`${GH.API}/repos/${GH.OWNER}/${GH.NAME}/contents/${path}`,{
+    method:'PUT', headers:{'Authorization':'Bearer '+EMBEDDED_TOKEN,'Accept':'application/vnd.github+json','Content-Type':'application/json'},
+    body:JSON.stringify(body)});
+  if(!r.ok) throw new Error('PDF upload HTTP '+r.status);
+  return 'https://raw.githubusercontent.com/'+GH.OWNER+'/'+GH.NAME+'/'+GH.BRANCH+'/'+path;
 }
 async function saveToGitHub(){
   if(!PARSED){alert('Upload a file first.');return;}
