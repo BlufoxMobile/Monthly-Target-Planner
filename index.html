@@ -270,16 +270,22 @@ async function boot(){
   }catch(e){ st('loadStatus','Could not load store directory: '+e,'err'); }
   // target summary (GP goals) — optional
   try{ SUMMARY = await (await fetch(SUMMARY_RAW+'?t='+Date.now())).json(); }catch(e){ SUMMARY=null; }
-  // sales report: traffic (Zero) + rosters (Rep Rank)
+  // sales report: traffic (Store Rank · Shopper Trak Daily Avg, col AE) + rosters (Rep Rank)
   try{
     const buf = await (await fetch(REPORT_URL+'?t='+Date.now())).arrayBuffer();
     const wb = XLSX.read(buf,{type:'array'});
-    // Zero -> daily traffic
-    const zs = wb.Sheets['Zero'];
-    if(zs){
-      const aoa = XLSX.utils.sheet_to_json(zs,{header:1,defval:null,raw:true});
-      let h=-1; for(let i=0;i<Math.min(aoa.length,10);i++){ if(aoa[i]&&aoa[i][0]&&String(aoa[i][0]).trim().toLowerCase()==='store name'){h=i;break;} }
-      if(h>-1){ for(let i=h+1;i<aoa.length;i++){ const r=aoa[i]; if(!r||!r[0])continue; TRAFFIC[String(r[0]).trim().toLowerCase()]=Number(r[8])||0; } }
+    // Store Rank -> daily traffic = "Shopper Trak Daily Avg" (column AE / index 30), keyed by Store (col C / index 2)
+    const srk = wb.Sheets['Store Rank'];
+    if(srk){
+      const aoa = XLSX.utils.sheet_to_json(srk,{header:1,defval:null,raw:true});
+      let h=-1, stCol=30;
+      for(let i=0;i<Math.min(aoa.length,12);i++){ if(aoa[i]&&String(aoa[i][2]||'').trim().toLowerCase()==='store'){h=i;break;} }
+      if(h>-1){
+        // locate the Shopper Trak Daily Avg column by header (fallback to AE/30)
+        const hdr=aoa[h]; for(let ci=0;ci<hdr.length;ci++){ if(hdr[ci]&&/shopper\s*trak\s*daily\s*avg/i.test(String(hdr[ci]))){ stCol=ci; break; } }
+        for(let i=h+1;i<aoa.length;i++){ const r=aoa[i]; if(!r||!r[2])continue;
+          const v=Number(r[stCol]); if(!isNaN(v)&&v>0) TRAFFIC[String(r[2]).trim().toLowerCase()]=Math.round(v); }
+      }
     }
     // Rep Rank -> rosters by Location
     const rr = wb.Sheets['Rep Rank'];
