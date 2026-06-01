@@ -432,6 +432,71 @@ async function downloadPDF(){
 }
 
 /* ====== Zapier submit ====== */
+/* ====== Outlook-safe HTML email (sent to Zapier as one field) ====== */
+function buildEmailHTML(c,short,period,mgr,repTargets){
+  const NAVY='#0b2a4a',BLUE='#1763b6',ORANGE='#f6921e',GOLD='#ffd66b',PAPER='#f4f7fb',LINE='#d7e1ec';
+  const sg=(l,v)=>`<tr><td style="padding:7px 12px;border:1px solid ${LINE};font:700 12px Arial;color:#33485f;text-transform:uppercase">${l}</td><td style="padding:7px 12px;border:1px solid ${LINE};font:800 15px Arial;color:${NAVY};text-align:right">${v}</td></tr>`;
+  const storeTbl=`<table cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse">
+    ${sg('Store GP Goal',money(c.gp))}${sg('Store XM Goal',num(c.storeXM))}${sg('Store RGU Goal',num(c.storeRGU))}
+    ${sg('Store Watch / Tablet',num(c.storeWT))}${sg('Store Accessory',money(c.storeAcc))}${sg('Store T-Sheet Goal',num(c.storeTS))}</table>`;
+  const repHdr=['#','Representative','GP','XM','RGU','W/T','Acc $','T-Sheet','$/Shift']
+    .map((h,i)=>`<th style="background:${NAVY};color:#fff;font:700 11px Arial;padding:6px 7px;text-align:${i<2?'left':'center'}">${h}</th>`).join('');
+  const repBody=(repTargets.length?repTargets:[{name:'Sales Rep'}]).map((p,i)=>`<tr style="background:${i%2?'#f6f9fc':'#fff'}">
+    <td style="border-bottom:1px solid #e8eef5;padding:5px 7px;font:700 11px Arial;text-align:center">${i+1}</td>
+    <td style="border-bottom:1px solid #e8eef5;padding:5px 7px;font:700 11px Arial">${p.name}</td>
+    <td style="border-bottom:1px solid #e8eef5;padding:5px 7px;font:11px Arial;text-align:center">${money(c.repGP)}</td>
+    <td style="border-bottom:1px solid #e8eef5;padding:5px 7px;font:11px Arial;text-align:center">${num(c.repXM)}</td>
+    <td style="border-bottom:1px solid #e8eef5;padding:5px 7px;font:11px Arial;text-align:center">${num(c.repRGU)}</td>
+    <td style="border-bottom:1px solid #e8eef5;padding:5px 7px;font:11px Arial;text-align:center">${num(c.repWT)}</td>
+    <td style="border-bottom:1px solid #e8eef5;padding:5px 7px;font:11px Arial;text-align:center">${money(c.repAcc)}</td>
+    <td style="border-bottom:1px solid #e8eef5;padding:5px 7px;font:11px Arial;text-align:center">${num(c.repTS)}</td>
+    <td style="border-bottom:1px solid #e8eef5;padding:5px 7px;font:700 11px Arial;text-align:center">${money(c.dailyComm)}</td></tr>`).join('');
+  return `<div style="max-width:680px;margin:0 auto;font-family:Arial,sans-serif;color:#10233a">
+    <table cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse;background:${NAVY};border-bottom:5px solid ${ORANGE}">
+      <tr><td style="padding:18px 24px">
+        <div style="font:700 12px Arial;letter-spacing:3px;color:${GOLD}">COOK COUNTY COOKS</div>
+        <div style="font:800 24px Arial;color:#fff">MONTHLY COMMITMENTS</div>
+      </td><td style="padding:18px 24px;text-align:right">
+        <div style="font:800 20px Arial;color:#fff">${short}</div>
+        <div style="font:700 13px Arial;color:${GOLD}">${period}</div>
+        <div style="font:12px Arial;color:#cfe0f1">Mgr: ${mgr||'—'}</div>
+      </td></tr>
+    </table>
+    <table cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse;background:${BLUE}">
+      <tr>
+        <td style="padding:8px 14px;color:#fff;font:11px Arial;border-right:1px solid #0a2b4d"><span style="color:${GOLD}">REPS</span><br><b style="font-size:15px">${c.reps}</b></td>
+        <td style="padding:8px 14px;color:#fff;font:11px Arial;border-right:1px solid #0a2b4d"><span style="color:${GOLD}">DAILY TRAFFIC</span><br><b style="font-size:15px">${num(c.daily)}</b></td>
+        <td style="padding:8px 14px;color:#fff;font:11px Arial;border-right:1px solid #0a2b4d"><span style="color:${GOLD}">MOBILE CLOSE RATE</span><br><b style="font-size:15px">${c.cr}%</b></td>
+        <td style="padding:8px 14px;color:#fff;font:11px Arial"><span style="color:${GOLD}">NPS TARGET</span><br><b style="font-size:15px">${c.nps}%</b></td>
+      </tr>
+    </table>
+    <table cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse;margin-top:14px"><tr>
+      <td width="50%" valign="top" style="padding-right:8px">
+        <div style="background:${NAVY};color:#fff;font:800 13px Arial;padding:7px 12px;border-radius:6px;margin-bottom:6px">★ STORE GOALS</div>${storeTbl}</td>
+      <td width="50%" valign="top" style="padding-left:8px">
+        <div style="background:${ORANGE};color:#fff;font:800 13px Arial;padding:7px 12px;border-radius:6px;margin-bottom:6px">◆ PER-REP GOALS</div>
+        <table cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse">
+          ${sg('Rep GP Goal',money(c.repGP))}${sg('Rep XM Goal',num(c.repXM))}${sg('Rep RGU Goal',num(c.repRGU))}
+          ${sg('Rep Watch / Tablet',num(c.repWT))}${sg('Rep Accessory',money(c.repAcc))}${sg('Rep T-Sheet Goal',num(c.repTS))}</table></td>
+    </tr></table>
+    <table cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse;margin-top:8px;text-align:center">
+      <tr>
+        <td style="background:#1f9d57;color:#fff;font:Arial;padding:9px;border-radius:8px"><div style="font-size:10px">MONTHLY DOOR SWINGS</div><div style="font:800 20px Arial">${num(c.monthly)}</div></td>
+        <td width="10"></td>
+        <td style="background:#5b3fb0;color:#fff;font:Arial;padding:9px;border-radius:8px"><div style="font-size:10px">CUSTOMERS / REP</div><div style="font:800 20px Arial">${num(c.empTraffic)}</div></td>
+      </tr>
+    </table>
+    <h3 style="font:700 13px Arial;color:${BLUE};margin:16px 0 6px">Individual Rep Commitments — ${short}</h3>
+    <table cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse"><tr>${repHdr}</tr>${repBody}</table>
+    <div style="background:#fff7e9;border:1px solid #ffb43b;border-radius:10px;padding:12px 16px;margin-top:14px;font:13px Arial;color:#3a2a10;line-height:1.6">
+      This month, our goal is to see every rep over <b style="color:#a8590f">${money(c.comm)}</b> in monthly commission —
+      a minimum of <b style="color:#a8590f">${money(c.dailyComm)}</b> per shift. We estimate <b style="color:#a8590f">${num(c.monthly)}</b> door swings,
+      about <b style="color:#a8590f">${num(c.empTraffic)}</b> customers each. Offer XM to every customer and follow the sales process —
+      no one walks without the talk, and no pitch is complete without the sheet! Target NPS is <b style="color:#a8590f">${c.nps}%</b> or better. Let's win! 🦊</div>
+    <div style="background:${NAVY};color:#cfe0f1;font:11px Arial;padding:9px 16px;margin-top:12px;border-radius:6px">Cook County Cooks · C³ · Blufox Mobile — the full printable target sheet is attached as a PDF.</div>
+  </div>`;
+}
+
 async function submitToZapier(){
   const b=document.getElementById('subBtn');b.disabled=true;b.textContent='Submitting…';
   try{
@@ -441,9 +506,13 @@ async function submitToZapier(){
       gp:Math.round(c.repGP),xm:Math.round(c.repXM),rgu:Math.round(c.repRGU),
       watchTablet:Math.round(c.repWT),accessory:Math.round(c.repAcc),tsheet:Math.round(c.repTS),
       dailyCommission:Math.round(c.dailyComm)}));
-    let pdfB64=''; try{const pdf=await buildPDF();pdfB64=pdf.output('datauristring').split(',')[1];}catch(e){}
-    const payload={ submittedAt:new Date().toISOString(), period:document.getElementById('period').value,
-      store:short, storeManager:document.getElementById('mgrName').value,
+    let pdfB64='',pdfUri=''; try{const pdf=await buildPDF();pdfUri=pdf.output('datauristring');pdfB64=pdfUri.split(',')[1];}catch(e){}
+    const period=document.getElementById('period').value;
+    const mgr=document.getElementById('mgrName').value;
+    const subject='Monthly Target Sheet — '+short+' — '+period;
+    const emailHTML=buildEmailHTML(c,short,period,mgr,repTargets);
+    const payload={ submittedAt:new Date().toISOString(), period,
+      store:short, storeManager:mgr,
       managerEmail:document.getElementById('mgrEmail').value, dmEmail:document.getElementById('dmEmail').value,
       address:document.getElementById('addr').value, reps:c.reps, dailyTraffic:c.daily,
       monthlyTraffic:Math.round(c.monthly), customersPerRep:Math.round(c.empTraffic),
@@ -451,7 +520,8 @@ async function submitToZapier(){
       storeGoals:{gp:Math.round(c.gp),xm:c.storeXM,rgu:Math.round(c.storeRGU),watchTablet:Math.round(c.storeWT),accessory:Math.round(c.storeAcc),tsheet:Math.round(c.storeTS)},
       repGoals:{gp:Math.round(c.repGP),xm:Math.round(c.repXM),rgu:Math.round(c.repRGU),watchTablet:Math.round(c.repWT),accessory:Math.round(c.repAcc),tsheet:Math.round(c.repTS)},
       reps_detail:repTargets,
-      pdfBase64:pdfB64, pdfFilename:'C3_Target_'+short.replace(/\s+/g,'_')+'.pdf' };
+      subject, emailHTML,
+      pdfBase64:pdfB64, pdfDataUri:pdfUri, pdfFilename:'C3_Target_'+short.replace(/\s+/g,'_')+'.pdf' };
     await fetch(ZAPIER_HOOK,{method:'POST',mode:'no-cors',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     st('subStatus','✓ Submitted! Targets sent to <b>'+payload.managerEmail+'</b> and the DM via Zapier, with the PDF attached.','good');
     b.textContent='✓ Submitted';
