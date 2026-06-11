@@ -143,6 +143,7 @@
         <div class="hide"><input id="mgrName" readonly></div>
         <div class="hide"><input id="mgrEmail" readonly></div>
         <div class="hide"><input id="dmEmail" readonly></div>
+        <div class="hide"><input id="asmEmail" readonly></div>
         <div class="hide"><input id="addr" readonly></div>
         <div class="hide"><input id="nps" type="number" value="80"></div>
       </div>
@@ -307,6 +308,7 @@ document.getElementById('store').addEventListener('change',function(){
   document.getElementById('mgrName').value=(DIR.storeManagerNames||{})[full]||'';
   document.getElementById('mgrEmail').value=(DIR.storeManagers||{})[full]||'';
   document.getElementById('dmEmail').value=(DIR.storeDMs||{})[full]||'';
+  document.getElementById('asmEmail').value=((DIR.storeAMs||{})[full])||'';
   document.getElementById('addr').value=(DIR.storeAddresses||{})[full]||'';
   document.getElementById('nps').value=80;
   // traffic
@@ -522,7 +524,7 @@ async function submitToZapier(){
     let pdfUrl=''; if(pdfB64){ b.textContent='Uploading PDF…'; try{ pdfUrl=await uploadPdfToRepo(pdfB64,short,period); }catch(e){ pdfUrl=''; } b.textContent='Submitting…'; }
     const payload={ submittedAt:new Date().toISOString(), period,
       store:short, storeManager:mgr,
-      managerEmail:document.getElementById('mgrEmail').value, dmEmail:document.getElementById('dmEmail').value,
+      managerEmail:document.getElementById('mgrEmail').value, dmEmail:document.getElementById('dmEmail').value, asmEmail:document.getElementById('asmEmail').value,
       address:document.getElementById('addr').value, reps:c.reps, dailyTraffic:c.daily,
       monthlyTraffic:Math.round(c.monthly), customersPerRep:Math.round(c.empTraffic),
       mobileCloseRate:c.cr, npsTarget:c.nps, avgCommissionPerRep:Math.round(c.comm), dailyCommissionPerRep:Math.round(c.dailyComm),
