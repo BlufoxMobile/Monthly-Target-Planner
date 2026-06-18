@@ -517,14 +517,14 @@ async function submitToZapier(){
       dailyCommission:Math.round(c.dailyComm)}));
     let pdfB64='',pdfUri=''; try{const pdf=await buildPDF();pdfUri=pdf.output('datauristring');pdfB64=pdfUri.split(',')[1];}catch(e){}
     const period=document.getElementById('period').value;
-    const mgr=document.getElementById('mgrName').value;
+    const mgr=document.getElementById('mgrName').value; const smEmail=document.getElementById('mgrEmail').value; const asmEmail=document.getElementById('asmEmail').value; const dmEmail=document.getElementById('dmEmail').value; const RSD_EMAIL='jbilbrey@blufoxmobile.com'; const storeReps=((DIR&&DIR.storeEmployees)||{})[CURRENT]||[]; const toAddr=smEmail||asmEmail||dmEmail||(storeReps[0]||'')||RSD_EMAIL; const ccSeen=new Set([toAddr.toLowerCase()]); const ccAddr=[asmEmail,dmEmail,...storeReps,RSD_EMAIL].filter(e=>{ if(!e) return false; const k=e.toLowerCase(); if(ccSeen.has(k)) return false; ccSeen.add(k); return true; }).join(',');
     const subject='Monthly Target Sheet — '+short+' — '+period;
     const emailHTML=buildEmailHTML(c,short,period,mgr,repTargets);
     // upload PDF to repo → public URL Zapier can attach as a real .pdf
     let pdfUrl=''; if(pdfB64){ b.textContent='Uploading PDF…'; try{ pdfUrl=await uploadPdfToRepo(pdfB64,short,period); }catch(e){ pdfUrl=''; } b.textContent='Submitting…'; }
     const payload={ submittedAt:new Date().toISOString(), period,
       store:short, storeManager:mgr,
-      managerEmail:document.getElementById('mgrEmail').value, dmEmail:document.getElementById('dmEmail').value, asmEmail:document.getElementById('asmEmail').value,
+      to:toAddr, cc:ccAddr, storeEmails:storeReps, managerEmail:smEmail, dmEmail:dmEmail, asmEmail:asmEmail,
       address:document.getElementById('addr').value, reps:c.reps, dailyTraffic:c.daily,
       monthlyTraffic:Math.round(c.monthly), customersPerRep:Math.round(c.empTraffic),
       mobileCloseRate:c.cr, npsTarget:c.nps, avgCommissionPerRep:Math.round(c.comm), dailyCommissionPerRep:Math.round(c.dailyComm),
@@ -534,7 +534,7 @@ async function submitToZapier(){
       subject, emailHTML,
       pdfUrl, pdfBase64:pdfB64, pdfDataUri:pdfUri, pdfFilename:'C3_Target_'+short.replace(/\s+/g,'_')+'.pdf' };
     await fetch(ZAPIER_HOOK,{method:'POST',mode:'no-cors',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
-    st('subStatus','✓ Submitted! Targets sent to <b>'+payload.managerEmail+'</b> and the DM via Zapier, with the PDF attached.','good');
+    st('subStatus','✓ Submitted! Targets emailed to the whole '+short+' team via Zapier, with the PDF attached.','good');
     b.textContent='✓ Submitted';
   }catch(e){ st('subStatus','Submission error: '+e,'err'); b.disabled=false; b.textContent='✓ Submit & Email Targets'; }
 }
