@@ -546,6 +546,52 @@ async function submitToZapier(){
   }catch(e){ st('subStatus','Submission error: '+e,'err'); b.disabled=false; b.textContent='✓ Submit & Email Targets'; }
 }
 
+/* ====== LOCKED MONTHLY TARGETS ==========================================
+   When the admin uploads the month's targets, we snapshot the FULL monthly
+   target set per store into target-summary.json so the Employee Scorecard can
+   read the exact beginning-of-month goals (instead of re-deriving from live
+   traffic that drifts all month). Mobile is fixed at 7% close rate for every
+   store; the other rates mirror the Manager-tab compute() engine.            */
+const LOCK_RATES = { mobileCloseRate:7, wtRate:0.02, tsRate:0.20, accPerXM:20 };
+
+function daysInMonthNamed(monthName, year){
+  const d = new Date((monthName||'')+' 1, '+(year||''));
+  if(isNaN(d)) return 30;
+  const n = new Date(d.getFullYear(), d.getMonth()+1, 0).getDate();
+  return n || 30;
+}
+
+// Build the locked target block for one store (short name), using the traffic
+// + roster loaded from the current Sales Report and the fiscal close rate / GP
+// from the uploaded targets sheet. All values round UP, matching compute().
+function lockTargets(shortNm, fiscalCloseRatePct, gp){
+  const C = Math.ceil;
+  const key = String(shortNm||'').toLowerCase();
+  const daily = Number(TRAFFIC[key]) || 0;
+  const repsRaw = (ROSTERS[key] || []).length || 0;
+  const reps = Math.max(1, repsRaw);
+  const days = daysInMonthNamed(document.getElementById('adminMonth').value, +document.getElementById('adminYear').value);
+  const monthly = daily * days;
+  let fcr = Number(fiscalCloseRatePct);
+  if(!isFinite(fcr)) fcr = 0;
+  if(fcr > 0 && fcr <= 1) fcr = fcr * 100;               // tolerate 0.105 vs 10.5
+  const gpNum = Number(gp) || 0;
+  const storeXM  = C(monthly * (LOCK_RATES.mobileCloseRate/100));
+  const storeRGU = C(monthly * (fcr/100));
+  const storeWT  = C(monthly * LOCK_RATES.wtRate);
+  const storeTS  = C(monthly * LOCK_RATES.tsRate);
+  const storeAcc = C(storeXM * LOCK_RATES.accPerXM);
+  return {
+    mobileCloseRate: LOCK_RATES.mobileCloseRate,
+    fiscalCloseRate: Number(fcr.toFixed(2)),
+    wtRate: LOCK_RATES.wtRate, tsRate: LOCK_RATES.tsRate, accPerXM: LOCK_RATES.accPerXM,
+    dailyTraffic: daily, days, monthlyTraffic: C(monthly), reps: repsRaw,
+    store: { gp:C(gpNum), xm:storeXM, rgu:storeRGU, watchTablet:storeWT, tsheet:storeTS, accessory:storeAcc },
+    rep:   { gp:C(gpNum/reps), xm:C(storeXM/reps), rgu:C(storeRGU/reps),
+             watchTablet:C(storeWT/reps), tsheet:C((monthly/reps)*LOCK_RATES.tsRate), accessory:C(storeAcc/reps) }
+  };
+}
+
 /* ====== ADMIN: parse workbook (Jeffrey Bilbrey tab, cols A–F) ====== */
 document.getElementById('xlsx').addEventListener('change',function(ev){
   const f=ev.target.files[0]; if(!f)return;
@@ -563,13 +609,20 @@ document.getElementById('xlsx').addEventListener('change',function(ev){
         const nm=String(r[0]).trim(); if(!nm)continue;
         let cr=r[4]; if(typeof cr==='number'&&cr<=1)cr=cr*100;
         let nps=r[3]; if(typeof nps==='number'&&nps<=1)nps=nps*100;
+        const crPct=(typeof cr==='number'?Number(cr.toFixed(2)):cr);
+        const gpVal=(typeof r[5]==='number'?r[5]:Number(r[5])||null);
         stores[nm]={dm:r[1]||'',rd:r[2]||'',nps:(typeof nps==='number'?Math.round(nps):nps),
-          closeRate:(typeof cr==='number'?Number(cr.toFixed(2)):cr), gp:(typeof r[5]==='number'?r[5]:Number(r[5])||null)}; }
+          closeRate:crPct, gp:gpVal,
+          // Locked monthly targets for the Employee Scorecard (mobile @ 7%).
+          targets: lockTargets(nm, crPct, gpVal)}; }
       PARSED={month:document.getElementById('adminMonth').value, year:+document.getElementById('adminYear').value, sheet:sheetName, stores};
       const keys=Object.keys(stores);
-      // preview
-      let t='<thead><tr><th>Store</th><th>DM</th><th>RD</th><th>NPS</th><th>Close Rate</th><th>GP $ (col F)</th></tr></thead><tbody>';
-      keys.forEach(k=>{const s=stores[k];t+=`<tr><td class="nm">${k}</td><td>${s.dm}</td><td>${s.rd}</td><td class="num">${s.nps}</td><td class="num">${s.closeRate}</td><td class="num">${money(s.gp||0)}</td></tr>`;});
+      // preview — now includes the locked mobile (XM @7%) and per-rep XM goal so
+      // the admin can confirm the beginning-of-month numbers before saving.
+      let t='<thead><tr><th>Store</th><th>DM</th><th>RD</th><th>NPS</th><th>Close Rate</th><th>GP $ (col F)</th><th>Mo. Traffic</th><th>Store XM @7%</th><th>Rep XM</th></tr></thead><tbody>';
+      keys.forEach(k=>{const s=stores[k];const g=s.targets||{};const gs=g.store||{};const gr=g.rep||{};
+        const warn=(!g.dailyTraffic||!g.reps)?' style="color:#c0392b"':'';
+        t+=`<tr><td class="nm">${k}</td><td>${s.dm}</td><td>${s.rd}</td><td class="num">${s.nps}</td><td class="num">${s.closeRate}</td><td class="num">${money(s.gp||0)}</td><td class="num"${warn}>${num(g.monthlyTraffic||0)}</td><td class="num">${num(gs.xm||0)}</td><td class="num">${num(gr.xm||0)}</td></tr>`;});
       t+='</tbody>';
       document.getElementById('previewTable').innerHTML=t;
       document.getElementById('previewWrap').classList.remove('hide');
@@ -665,7 +718,7 @@ async function saveToGitHub(){
       contentBase64:btoa(unescape(encodeURIComponent(JSON.stringify(payload,null,2)))),
       message:`Update monthly target summary — ${PARSED.month} ${PARSED.year}` }]);
     SUMMARY=payload;
-    st('saveStatus','✓ Saved <code>data/target-summary.json</code> for <b>'+PARSED.month+' '+PARSED.year+'</b>. The Manager tab now pulls these GP goals.','good');
+    st('saveStatus','✓ Saved <code>data/target-summary.json</code> for <b>'+PARSED.month+' '+PARSED.year+'</b>. Locked monthly targets (mobile @7%, watch/tablet, T-sheet, accessory, GP) are now live — the Manager tab and the Employee Scorecard both read these.','good');
     b.textContent='✓ Saved';
   }catch(e){ st('saveStatus','Save failed: '+e.message,'err'); b.disabled=false; b.textContent='⬆ Save to GitHub Repo'; }
 }
