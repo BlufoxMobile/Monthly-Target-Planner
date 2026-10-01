@@ -55,6 +55,25 @@
   button.act:disabled{opacity:.5;cursor:not-allowed;box-shadow:none}
   .hide{display:none!important}
 
+  /* ===== bulk send (admin) ===== */
+  table.rep th.ck,table.rep td.ck{width:34px;text-align:center}
+  table.rep input[type=checkbox]{width:16px;height:16px;padding:0;margin:0;accent-color:var(--c3-orange);cursor:pointer;vertical-align:middle}
+  table.rep input[type=checkbox]:disabled{cursor:not-allowed;opacity:.45}
+  .tag{display:inline-block;font-size:9.5px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px;vertical-align:1px;white-space:nowrap}
+  .tag.sent{background:#e9f9f0;color:#147a44}
+  .tag.skip{background:#fdeaea;color:#b02a2a}
+  .sendlist{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:6px;margin-top:10px}
+  .si{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:7px 10px;border:1px solid var(--c3-line);
+    border-radius:8px;background:#fbfdff;font-size:12px}
+  .si b{color:var(--c3-navy);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .si .s{font-weight:700;font-size:11px;white-space:nowrap;color:#8a99ab}
+  .si.go{border-color:var(--c3-sky);background:#f2f9ff}.si.go .s{color:var(--c3-blue)}
+  .si.ok{border-color:#bfe8cf;background:#f1fbf5}.si.ok .s{color:var(--c3-green)}
+  .si.part{border-color:#f6d39a;background:#fff8ec}.si.part .s{color:#a96407}
+  .si.bad{border-color:#f3c2c2;background:#fdf1f1}.si.bad .s{color:var(--c3-red)}
+  /* off-screen stage the bulk sender renders each store's sheet into for the PDF */
+  #sheetStage{position:absolute;left:-12000px;top:0;width:816px;pointer-events:none}
+
   /* ===== PRINTABLE LETTER SHEET ===== */
   #sheetHost{margin-top:22px;display:none}
   .sheet{width:816px;min-height:1056px;margin:0 auto;background:#fff;position:relative;
@@ -187,7 +206,7 @@
     <!-- upload UI -->
     <div class="panel hide" id="adminUpload">
       <h2>Upload Monthly Targets</h2>
-      <p class="hint">Choose the month, then upload the targets Excel. Only columns <b>A–F of the first tab (“Jeffrey Bilbrey”)</b> are saved — to <code>data/target-summary.json</code> in the Daily-Sales-Report repo. Nothing else is stored.</p>
+      <p class="hint">Choose the month, then upload the targets Excel. Columns <b>A–F of the first tab (“Jeffrey Bilbrey”)</b> are saved to <code>data/target-summary.json</code> in the Daily-Sales-Report repo, and <b>every checked store is emailed its target sheet automatically</b> — 7% Mobile Close Rate, $1,500 rep commission, 80% NPS — with the PDF attached. Uncheck a store to leave it out.</p>
       <div class="grid">
         <div><label>Month</label>
           <select id="adminMonth">
@@ -208,15 +227,21 @@
           <table class="rep" id="previewTable" style="font-size:11px"></table>
         </div>
         <div class="btns">
-          <button class="act b-primary" id="saveBtn" onclick="saveToGitHub()">⬆ Save to GitHub Repo</button>
+          <button class="act b-primary" id="saveBtn" onclick="saveAndEmailAll()">⬆ Save &amp; Email All Stores</button>
         </div>
-        <div class="status" id="saveStatus"></div><div id="blastWrap" class="hide" style="margin-top:14px"><div class="status" id="blastSummary"></div><div class="btns"><button class="act b-primary" id="blastBtn" onclick="blastAllTargets()">✉️ Send Targets to All Teams</button></div><div class="status" id="blastStatus"></div></div>
+        <div class="status" id="saveStatus"></div>
+        <div id="sendWrap" class="hide" style="margin-top:14px">
+          <div class="status" id="sendSummary"></div>
+          <div class="sendlist" id="sendList"></div>
+          <div class="btns"><button class="act b-blue hide" id="retryBtn" onclick="retryFailed()">↻ Retry Failed Stores</button></div>
+        </div>
       </div>
     </div>
   </div>
 </div>
 
 <div id="sheetHost"></div>
+<div id="sheetStage" aria-hidden="true"></div>
 
 <script>
 /* ====== config ====== */
@@ -353,14 +378,20 @@ function daysInSelectedMonth(){
    Rep GP          = ceil(Store GP / reps)        Daily commission = ceil(commission / 22)
    Everything rounds UP to the nearest whole number.                                              */
 function compute(){
+  return computeFor({ daily:document.getElementById('dailyTraffic').value, reps:document.getElementById('reps').value,
+    cr:document.getElementById('closeRate').value, fcr:FISCAL_CR, gp:document.getElementById('gpGoal').value,
+    comm:document.getElementById('commission').value, days:daysInSelectedMonth(), nps:document.getElementById('nps').value });
+}
+// Same engine, fed plain values — the Manager tab and the bulk sender both run through this.
+function computeFor(o){
   const C=Math.ceil;
-  const daily=+document.getElementById('dailyTraffic').value||0;
-  const reps=Math.max(1,+document.getElementById('reps').value||1);
-  const cr=+document.getElementById('closeRate').value||0;     // mobile close rate (manager sets)
-  const fcr=FISCAL_CR||0;                                      // Excel column E close rate
-  const gp=+document.getElementById('gpGoal').value||0;
-  const comm=+document.getElementById('commission').value||0;
-  const days=daysInSelectedMonth();
+  const daily=+o.daily||0;
+  const reps=Math.max(1,+o.reps||1);
+  const cr=+o.cr||0;                                           // mobile close rate
+  const fcr=+o.fcr||0;                                         // Excel column E close rate
+  const gp=+o.gp||0;
+  const comm=+o.comm||0;
+  const days=o.days||30;
   const monthly=daily*days;
   const storeXM=C(monthly*(cr/100));
   const storeRGU=C(monthly*(fcr/100));
@@ -371,7 +402,7 @@ function compute(){
     repGP:C(gp/reps), storeXM,repXM:C(storeXM/reps), storeRGU,repRGU:C(storeRGU/reps),
     storeWT,repWT:C(storeWT/reps), storeAcc,repAcc:C(storeAcc/reps),
     storeTS,repTS:C((monthly/reps)*0.20),
-    dailyComm:C(comm/22), nps:+document.getElementById('nps').value||80};
+    dailyComm:C(comm/22), nps:+o.nps||80};
 }
 
 function generate(){
@@ -381,6 +412,15 @@ function generate(){
   }
   const c=compute(), short=shortName(CURRENT);
   const roster=ROSTERS[short.toLowerCase()]||[];
+  const html=sheetHTML(c,short,document.getElementById('period').value,document.getElementById('mgrName').value,roster,'theSheet');
+  document.getElementById('sheetHost').innerHTML=html;
+  document.getElementById('sheetHost').style.display='block';
+  document.getElementById('actionPanel').style.display='block';
+  document.getElementById('sheetHost').scrollIntoView({behavior:'smooth'});
+}
+
+/* the printable letter sheet for one store — used on screen, in the PDF and by the bulk sender */
+function sheetHTML(c,short,period,mgr,roster,id){
   const G=(l,v,hl)=>`<div class="goal${hl?' hl':''}"><span class="gl">${l}</span><span class="gv">${v}</span></div>`;
   const repRows=(roster.length?roster:[{name:'Sales Rep',title:''}]).map((p,i)=>`
      <tr><td class="num">${i+1}</td><td class="nm">${p.name}</td>
@@ -388,14 +428,14 @@ function generate(){
      <td class="num">${num(c.repRGU)}</td><td class="num">${num(c.repWT)}</td>
      <td class="num">${money(c.repAcc)}</td><td class="num">${num(c.repTS)}</td>
      <td class="num">${money(c.dailyComm)}</td></tr>`).join('');
-  const html=`<div class="sheet" id="theSheet">
+  return `<div class="sheet" id="${id||'theSheet'}">
     <div class="s-top">
       <div class="badge"><img src="${LOGO}">
         <div class="s-title"><p class="k">COOK COUNTY COOKS</p><p class="b">MONTHLY COMMITMENTS</p></div></div>
-      <div class="s-store"><div class="nm">${short}</div><div class="mo">${document.getElementById('period').value}</div>
-        <div class="mgr">Mgr: ${document.getElementById('mgrName').value||'—'}</div></div>
+      <div class="s-store"><div class="nm">${short}</div><div class="mo">${period}</div>
+        <div class="mgr">Mgr: ${mgr||'—'}</div></div>
       <div class="s-meta">
-        <div><div class="l">Store Manager</div><div class="v">${document.getElementById('mgrName').value||'—'}</div></div>
+        <div><div class="l">Store Manager</div><div class="v">${mgr||'—'}</div></div>
         <div><div class="l">Reps on Team</div><div class="v">${c.reps}</div></div>
         <div><div class="l">Daily Traffic</div><div class="v">${num(c.daily)}</div></div>
         <div><div class="l">Mobile Close Rate</div><div class="v">${c.cr}%</div></div>
@@ -426,16 +466,15 @@ function generate(){
       Let's win! 🦊</div>
     <div class="s-foot"><span>Cook County Cooks · C³ · Blufox Mobile</span><span class="sig">Generated ${new Date().toLocaleDateString()}</span></div>
   </div>`;
-  document.getElementById('sheetHost').innerHTML=html;
-  document.getElementById('sheetHost').style.display='block';
-  document.getElementById('actionPanel').style.display='block';
-  if(!window.BLASTING) document.getElementById('sheetHost').scrollIntoView({behavior:'smooth'});
 }
 
+
 /* ====== PDF ====== */
-async function buildPDF(){
-  const node=document.getElementById('theSheet');
-  const canvas=await html2canvas(node,{scale:2,useCORS:true,backgroundColor:'#ffffff'});
+async function buildPDF(node){
+  node=node||document.getElementById('theSheet');
+  // The bulk sender renders into an off-screen stage; slide it on-screen in html2canvas's clone only.
+  const canvas=await html2canvas(node,{scale:2,useCORS:true,backgroundColor:'#ffffff',
+    onclone:function(doc){ const sg=doc.getElementById('sheetStage'); if(sg) sg.style.left='0px'; }});
   const img=canvas.toDataURL('image/jpeg',0.92);
   const {jsPDF}=window.jspdf; const pdf=new jsPDF({unit:'pt',format:'letter'});
   const pw=pdf.internal.pageSize.getWidth(), ph=pdf.internal.pageSize.getHeight();
@@ -513,34 +552,69 @@ function buildEmailHTML(c,short,period,mgr,repTargets){
   </div>`;
 }
 
+/* ====== one store's email: PDF -> repo link -> Zapier (Outlook) ======
+   The Manager tab's Submit button and the Admin bulk send both go through
+   deliverTargets(), so every store gets the exact same payload either way. */
+const RSD_EMAIL='jbilbrey@blufoxmobile.com';
+function emailList(v){ return (v||[]).map(function(r){return (r&&typeof r==='object')?(r.email||''):String(r||'');}).filter(Boolean); }
+// To = store manager (falls back to ASM, DM, first rep, RSD); CC = ASM, DM, every rep, RSD — de-duplicated.
+function routeEmail(sm,asm,dm,storeReps){
+  const toAddr=sm||asm||dm||(storeReps[0]||'')||RSD_EMAIL;
+  const seen=new Set([toAddr.toLowerCase()]);
+  const cc=[asm,dm].concat(storeReps).concat([RSD_EMAIL]).filter(function(e){
+    if(!e) return false; const k=String(e).toLowerCase(); if(seen.has(k)) return false; seen.add(k); return true; });
+  return {to:toAddr, cc:cc};
+}
+function sleep(ms){ return new Promise(function(r){ setTimeout(r,ms); }); }
+
+async function deliverTargets(o){
+  const c=o.c, short=o.short, period=o.period;
+  const repTargets=(o.roster||[]).map(p=>({name:p.name,title:p.title,
+    gp:Math.round(c.repGP),xm:Math.round(c.repXM),rgu:Math.round(c.repRGU),
+    watchTablet:Math.round(c.repWT),accessory:Math.round(c.repAcc),tsheet:Math.round(c.repTS),
+    dailyCommission:Math.round(c.dailyComm)}));
+  let pdfB64='',pdfUri=''; try{const pdf=await buildPDF(o.node);pdfUri=pdf.output('datauristring');pdfB64=pdfUri.split(',')[1];}catch(e){}
+  const storeReps=o.storeReps||[];
+  const r=routeEmail(o.sm,o.asm,o.dm,storeReps);
+  const subject='Monthly Target Sheet — '+short+' — '+period;
+  const emailHTML=buildEmailHTML(c,short,period,o.mgr,repTargets);
+  // upload PDF to repo → public URL Zapier can attach as a real .pdf
+  let pdfUrl='';
+  if(pdfB64){
+    if(o.onStep) o.onStep('pdf');
+    const tries=1+(o.retries||0);
+    for(let a=0;a<tries&&!pdfUrl;a++){
+      try{ pdfUrl=await uploadPdfToRepo(pdfB64,short,period); }
+      catch(e){ pdfUrl=''; if(a<tries-1) await sleep(2000); }
+    }
+  }
+  if(o.onStep) o.onStep('send');
+  const payload={ submittedAt:new Date().toISOString(), period,
+    store:short, storeManager:o.mgr,
+    to:r.to, cc:r.cc.join(','), storeEmails:storeReps, managerEmail:o.sm, dmEmail:o.dm, asmEmail:o.asm,
+    address:o.addr, reps:c.reps, dailyTraffic:c.daily,
+    monthlyTraffic:Math.round(c.monthly), customersPerRep:Math.round(c.empTraffic),
+    mobileCloseRate:c.cr, npsTarget:c.nps, avgCommissionPerRep:Math.round(c.comm), dailyCommissionPerRep:Math.round(c.dailyComm),
+    storeGoals:{gp:Math.round(c.gp),xm:c.storeXM,rgu:Math.round(c.storeRGU),watchTablet:Math.round(c.storeWT),accessory:Math.round(c.storeAcc),tsheet:Math.round(c.storeTS)},
+    repGoals:{gp:Math.round(c.repGP),xm:Math.round(c.repXM),rgu:Math.round(c.repRGU),watchTablet:Math.round(c.repWT),accessory:Math.round(c.repAcc),tsheet:Math.round(c.repTS)},
+    reps_detail:repTargets,
+    subject, emailHTML,
+    pdfUrl, pdfBase64:pdfB64, pdfDataUri:pdfUri, pdfFilename:'C3_Target_'+short.replace(/\s+/g,'_')+'.pdf' };
+  await fetch(ZAPIER_HOOK,{method:'POST',mode:'no-cors',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  return { to:r.to, recipients:1+r.cc.length, pdf:!!pdfUrl };
+}
+
 async function submitToZapier(){
   const b=document.getElementById('subBtn');b.disabled=true;b.textContent='Submitting…';
   try{
     const c=compute(), short=shortName(CURRENT);
-    const roster=ROSTERS[short.toLowerCase()]||[];
-    const repTargets=roster.map(p=>({name:p.name,title:p.title,
-      gp:Math.round(c.repGP),xm:Math.round(c.repXM),rgu:Math.round(c.repRGU),
-      watchTablet:Math.round(c.repWT),accessory:Math.round(c.repAcc),tsheet:Math.round(c.repTS),
-      dailyCommission:Math.round(c.dailyComm)}));
-    let pdfB64='',pdfUri=''; try{const pdf=await buildPDF();pdfUri=pdf.output('datauristring');pdfB64=pdfUri.split(',')[1];}catch(e){}
-    const period=document.getElementById('period').value;
-    const mgr=document.getElementById('mgrName').value; const smEmail=document.getElementById('mgrEmail').value; const asmEmail=document.getElementById('asmEmail').value; const dmEmail=document.getElementById('dmEmail').value; const RSD_EMAIL='jbilbrey@blufoxmobile.com'; const storeReps=(((DIR&&DIR.storeEmployees)||{})[CURRENT]||[]).map(r=>(r&&typeof r==='object')?(r.email||''):String(r||'')).filter(Boolean); const toAddr=smEmail||asmEmail||dmEmail||(storeReps[0]||'')||RSD_EMAIL; const ccSeen=new Set([toAddr.toLowerCase()]); const ccAddr=[asmEmail,dmEmail,...storeReps,RSD_EMAIL].filter(e=>{ if(!e) return false; const k=e.toLowerCase(); if(ccSeen.has(k)) return false; ccSeen.add(k); return true; }).join(',');
-    const subject='Monthly Target Sheet — '+short+' — '+period;
-    const emailHTML=buildEmailHTML(c,short,period,mgr,repTargets);
-    // upload PDF to repo → public URL Zapier can attach as a real .pdf
-    let pdfUrl=''; if(pdfB64){ b.textContent='Uploading PDF…'; try{ pdfUrl=await uploadPdfToRepo(pdfB64,short,period); }catch(e){ pdfUrl=''; } b.textContent='Submitting…'; }
-    const payload={ submittedAt:new Date().toISOString(), period,
-      store:short, storeManager:mgr,
-      to:toAddr, cc:ccAddr, storeEmails:storeReps, managerEmail:smEmail, dmEmail:dmEmail, asmEmail:asmEmail,
-      address:document.getElementById('addr').value, reps:c.reps, dailyTraffic:c.daily,
-      monthlyTraffic:Math.round(c.monthly), customersPerRep:Math.round(c.empTraffic),
-      mobileCloseRate:c.cr, npsTarget:c.nps, avgCommissionPerRep:Math.round(c.comm), dailyCommissionPerRep:Math.round(c.dailyComm),
-      storeGoals:{gp:Math.round(c.gp),xm:c.storeXM,rgu:Math.round(c.storeRGU),watchTablet:Math.round(c.storeWT),accessory:Math.round(c.storeAcc),tsheet:Math.round(c.storeTS)},
-      repGoals:{gp:Math.round(c.repGP),xm:Math.round(c.repXM),rgu:Math.round(c.repRGU),watchTablet:Math.round(c.repWT),accessory:Math.round(c.repAcc),tsheet:Math.round(c.repTS)},
-      reps_detail:repTargets,
-      subject, emailHTML,
-      pdfUrl, pdfBase64:pdfB64, pdfDataUri:pdfUri, pdfFilename:'C3_Target_'+short.replace(/\s+/g,'_')+'.pdf' };
-    await fetch(ZAPIER_HOOK,{method:'POST',mode:'no-cors',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    await deliverTargets({ c, short, period:document.getElementById('period').value,
+      mgr:document.getElementById('mgrName').value, sm:document.getElementById('mgrEmail').value,
+      asm:document.getElementById('asmEmail').value, dm:document.getElementById('dmEmail').value,
+      addr:document.getElementById('addr').value,
+      storeReps:emailList(((DIR&&DIR.storeEmployees)||{})[CURRENT]),
+      roster:ROSTERS[short.toLowerCase()]||[], node:document.getElementById('theSheet'),
+      onStep:function(step){ b.textContent=(step==='pdf')?'Uploading PDF…':'Submitting…'; } });
     st('subStatus','✓ Submitted! Targets emailed to the whole '+short+' team via Zapier, with the PDF attached.','good');
     b.textContent='✓ Submitted';
   }catch(e){ st('subStatus','Submission error: '+e,'err'); b.disabled=false; b.textContent='✓ Submit & Email Targets'; }
@@ -593,12 +667,30 @@ function lockTargets(shortNm, fiscalCloseRatePct, gp){
 }
 
 /* ====== ADMIN: parse workbook (Jeffrey Bilbrey tab, cols A–F) ====== */
+let LAST_BUF=null;
 document.getElementById('xlsx').addEventListener('change',function(ev){
   const f=ev.target.files[0]; if(!f)return;
+  if(SEND.running){ alert('Emails are still going out — wait for them to finish.'); ev.target.value=''; return; }
   const rd=new FileReader();
-  rd.onload=function(e){
+  rd.onload=function(e){ LAST_BUF=e.target.result; parseTargets(LAST_BUF); };
+  rd.readAsArrayBuffer(f);
+});
+// changing the month/year after the file is in re-runs the parse so the
+// locked targets, the saved month and the email subject all agree.
+['adminMonth','adminYear'].forEach(function(id){
+  document.getElementById(id).addEventListener('change',function(){ if(LAST_BUF&&!SEND.running) parseTargets(LAST_BUF); });
+});
+// drag & drop onto the box (click-to-browse already works)
+(function(){ const box=document.getElementById('dropBox');
+  ['dragenter','dragover'].forEach(function(t){ box.addEventListener(t,function(e){ e.preventDefault(); }); });
+  box.addEventListener('drop',function(e){ e.preventDefault(); const f=e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files[0]; if(!f) return;
+    const inp=document.getElementById('xlsx'); try{ const dt=new DataTransfer(); dt.items.add(f); inp.files=dt.files; }catch(_){}
+    inp.dispatchEvent(new Event('change')); });
+})();
+
+function parseTargets(buf){
     try{
-      const wb=XLSX.read(e.target.result,{type:'array'});
+      const wb=XLSX.read(buf,{type:'array'});
       const sheetName = wb.SheetNames.find(n=>/jeffrey bilbrey/i.test(n)) || wb.SheetNames[0];
       const aoa=XLSX.utils.sheet_to_json(wb.Sheets[sheetName],{header:1,defval:null,raw:true});
       // find the 'Store' header row (col A === 'Store')
@@ -616,22 +708,19 @@ document.getElementById('xlsx').addEventListener('change',function(ev){
           // Locked monthly targets for the Employee Scorecard (mobile @ 7%).
           targets: lockTargets(nm, crPct, gpVal)}; }
       PARSED={month:document.getElementById('adminMonth').value, year:+document.getElementById('adminYear').value, sheet:sheetName, stores};
-      const keys=Object.keys(stores);
-      // preview — now includes the locked mobile (XM @7%) and per-rep XM goal so
-      // the admin can confirm the beginning-of-month numbers before saving.
-      let t='<thead><tr><th>Store</th><th>DM</th><th>RD</th><th>NPS</th><th>Close Rate</th><th>GP $ (col F)</th><th>Mo. Traffic</th><th>Store XM @7%</th><th>Rep XM</th></tr></thead><tbody>';
-      keys.forEach(k=>{const s=stores[k];const g=s.targets||{};const gs=g.store||{};const gr=g.rep||{};
-        const warn=(!g.dailyTraffic||!g.reps)?' style="color:#c0392b"':'';
-        t+=`<tr><td class="nm">${k}</td><td>${s.dm}</td><td>${s.rd}</td><td class="num">${s.nps}</td><td class="num">${s.closeRate}</td><td class="num">${money(s.gp||0)}</td><td class="num"${warn}>${num(g.monthlyTraffic||0)}</td><td class="num">${num(gs.xm||0)}</td><td class="num">${num(gr.xm||0)}</td></tr>`;});
-      t+='</tbody>';
-      document.getElementById('previewTable').innerHTML=t;
+      renderPreview();
       document.getElementById('previewWrap').classList.remove('hide');
       document.getElementById('dropBox').classList.add('ok');
-      st('parseStatus','✓ Parsed <b>'+keys.length+'</b> stores from the <b>'+sheetName+'</b> tab (columns A–F). Review below, then save.','good');
+      // a fresh parse starts a fresh run
+      SEND.done=false; SEND.failed=[];
+      document.getElementById('saveStatus').className='status';
+      document.getElementById('sendWrap').classList.add('hide');
+      document.getElementById('retryBtn').classList.add('hide');
+      document.getElementById('saveBtn').disabled=false;
+      updateSaveBtn();
+      st('parseStatus','✓ Parsed <b>'+Object.keys(stores).length+'</b> stores from the <b>'+sheetName+'</b> tab (columns A–F) for <b>'+PARSED.month+' '+PARSED.year+'</b>. Uncheck any store you don’t want emailed, then hit <b>Save &amp; Email</b>.','good');
     }catch(err){ st('parseStatus','Could not read that workbook: '+err.message,'err'); }
-  };
-  rd.readAsArrayBuffer(f);
-});
+}
 
 /* ====== ADMIN: save to GitHub (via the upload proxy) ====== */
 /* ---- WRITE TRANSPORT ------------------------------------------------
@@ -708,19 +797,184 @@ async function uploadPdfToRepo(pdfB64, short, period){
     message:'Target PDF — '+short+' '+period }]);
   return 'https://raw.githubusercontent.com/'+GH.OWNER+'/'+GH.NAME+'/'+GH.BRANCH+'/'+path;
 }
-function normStore(s){ return String(s||'').toLowerCase().replace(/[^a-z0-9]/g,''); } let BLAST_LIST=[]; function blastCandidates(){ const out={ready:[],skipped:[]}; if(!PARSED||!PARSED.stores) return out; const dirStores=(DIR&&DIR.stores)||[]; Object.keys(PARSED.stores).forEach(function(shortNm){ const rec=PARSED.stores[shortNm]||{}, t=rec.targets||{}; const full=dirStores.find(function(s){return normStore(shortName(s))===normStore(shortNm);}); const why=[]; if(!full) why.push('not in store directory'); if(!(rec.gp>0)) why.push('no GP goal'); if(!(t.dailyTraffic>0)) why.push('no traffic'); if(!(t.reps>0)) why.push('no reps'); if(why.length){ out.skipped.push({store:shortNm,why:why.join(', ')}); } else { const reps=((DIR.storeEmployees||{})[full]||[]).map(function(r){return (r&&typeof r==='object')?(r.email||''):String(r||'');}).filter(Boolean); const rc=new Set([(DIR.storeManagers||{})[full],(DIR.storeAMs||{})[full],(DIR.storeDMs||{})[full]].concat(reps).concat(['jbilbrey@blufoxmobile.com']).filter(Boolean).map(function(x){return String(x).toLowerCase();})); out.ready.push({short:shortNm,full:full,recipients:rc.size}); } }); return out; } function prepareBlast(){ const c=blastCandidates(); BLAST_LIST=c.ready; document.getElementById('blastWrap').classList.remove('hide'); const people=c.ready.reduce(function(n,x){return n+x.recipients;},0); let h='<b>Ready to email '+c.ready.length+' store team'+(c.ready.length===1?'':'s')+'</b> — about <b>'+people+'</b> recipients total, at 7% close rate, $1,500 commission and 80% NPS.'; if(c.ready.length) h+='<br><span style="font-size:11px">'+c.ready.map(function(x){return x.short;}).join(' · ')+'</span>'; if(c.skipped.length) h+='<br><b style="color:#c0392b">Skipped '+c.skipped.length+':</b> <span style="font-size:11px">'+c.skipped.map(function(x){return x.store+' ('+x.why+')';}).join(' · ')+'</span>'; st('blastSummary',h,c.skipped.length?'warn':'good'); const b=document.getElementById('blastBtn'); b.disabled=!c.ready.length; b.textContent='✉️ Send Targets to '+c.ready.length+' Team'+(c.ready.length===1?'':'s'); } async function sendOneStore(period){ const c=compute(), short=shortName(CURRENT); const roster=ROSTERS[short.toLowerCase()]||[]; const repTargets=roster.map(function(p){return {name:p.name,title:p.title,gp:Math.round(c.repGP),xm:Math.round(c.repXM),rgu:Math.round(c.repRGU),watchTablet:Math.round(c.repWT),accessory:Math.round(c.repAcc),tsheet:Math.round(c.repTS),dailyCommission:Math.round(c.dailyComm)};}); let pdfB64='',pdfUri=''; try{ const pdf=await buildPDF(); pdfUri=pdf.output('datauristring'); pdfB64=pdfUri.split(',')[1]; }catch(e){} const mgr=document.getElementById('mgrName').value, smEmail=document.getElementById('mgrEmail').value, asmEmail=document.getElementById('asmEmail').value, dmEmail=document.getElementById('dmEmail').value, RSD='jbilbrey@blufoxmobile.com'; const storeReps=(((DIR&&DIR.storeEmployees)||{})[CURRENT]||[]).map(function(r){return (r&&typeof r==='object')?(r.email||''):String(r||'');}).filter(Boolean); const toAddr=smEmail||asmEmail||dmEmail||(storeReps[0]||'')||RSD; const ccSeen=new Set([toAddr.toLowerCase()]); const ccAddr=[asmEmail,dmEmail].concat(storeReps).concat([RSD]).filter(function(e){ if(!e) return false; const k=e.toLowerCase(); if(ccSeen.has(k)) return false; ccSeen.add(k); return true; }).join(','); const subject='Monthly Target Sheet — '+short+' — '+period; const emailHTML=buildEmailHTML(c,short,period,mgr,repTargets); let pdfUrl=''; if(pdfB64){ try{ pdfUrl=await uploadPdfToRepo(pdfB64,short,period); }catch(e){ pdfUrl=''; } } const payload={submittedAt:new Date().toISOString(),period:period,store:short,storeManager:mgr,to:toAddr,cc:ccAddr,storeEmails:storeReps,managerEmail:smEmail,dmEmail:dmEmail,asmEmail:asmEmail,address:document.getElementById('addr').value,reps:c.reps,dailyTraffic:c.daily,monthlyTraffic:Math.round(c.monthly),customersPerRep:Math.round(c.empTraffic),mobileCloseRate:c.cr,npsTarget:c.nps,avgCommissionPerRep:Math.round(c.comm),dailyCommissionPerRep:Math.round(c.dailyComm),storeGoals:{gp:Math.round(c.gp),xm:c.storeXM,rgu:Math.round(c.storeRGU),watchTablet:Math.round(c.storeWT),accessory:Math.round(c.storeAcc),tsheet:Math.round(c.storeTS)},repGoals:{gp:Math.round(c.repGP),xm:Math.round(c.repXM),rgu:Math.round(c.repRGU),watchTablet:Math.round(c.repWT),accessory:Math.round(c.repAcc),tsheet:Math.round(c.repTS)},reps_detail:repTargets,subject:subject,emailHTML:emailHTML,pdfUrl:pdfUrl,pdfBase64:pdfB64,pdfDataUri:pdfUri,pdfFilename:'C3_Target_'+short.replace(/\s+/g,'_')+'.pdf'}; await fetch(ZAPIER_HOOK,{method:'POST',mode:'no-cors',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}); } async function blastAllTargets(){ if(!BLAST_LIST.length) return; const period=PARSED.month+' '+PARSED.year; if(!confirm('Email monthly targets to '+BLAST_LIST.length+' store teams for '+period+'? This sends real email to every store manager, ASM, DM and rep.')) return; const b=document.getElementById('blastBtn'); b.disabled=true; window.BLASTING=true; const sel=document.getElementById('store'); const sent=[],failed=[]; for(let i=0;i<BLAST_LIST.length;i++){ const item=BLAST_LIST[i]; b.textContent='Sending '+(i+1)+' / '+BLAST_LIST.length+' — '+item.short; st('blastStatus','Working on <b>'+item.short+'</b> ('+(i+1)+' of '+BLAST_LIST.length+')…','warn'); try{ sel.value=item.full; sel.dispatchEvent(new Event('change')); document.getElementById('period').value=period; document.getElementById('closeRate').value=DEFAULTS.closeRate; document.getElementById('commission').value=DEFAULTS.commission; document.getElementById('nps').value=DEFAULTS.nps; generate(); await new Promise(function(r){setTimeout(r,150);}); await sendOneStore(period); sent.push(item.short); }catch(e){ failed.push(item.short+' ('+((e&&e.message)?e.message:e)+')'); } } window.BLASTING=false; b.disabled=false; b.textContent='✉️ Send Targets to All Teams'; let h='✓ Sent <b>'+sent.length+'</b> of '+BLAST_LIST.length+' store teams for '+period+'.'; if(failed.length) h+=' <b style="color:#c0392b">Failed:</b> '+failed.join(' · '); st('blastStatus',h,failed.length?'warn':'good'); } async function saveToGitHub(){
-  if(!PARSED){alert('Upload a file first.');return;}
-  const b=document.getElementById('saveBtn');b.disabled=true;b.textContent='Saving…';
+function normStore(s){ return String(s||'').toLowerCase().replace(/[^a-z0-9]/g,''); }
+function esc(v){ return String(v==null?'':v).replace(/[&<>"]/g,function(ch){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch];}); }
+
+/* ====== ADMIN: save + email every store ==================================
+   One click: save target-summary.json, then email each checked store its
+   target sheet (7% mobile close rate, $1,500 commission, 80% NPS) through
+   the same Zapier hook the Manager tab uses — one store at a time, with the
+   PDF uploaded first so Zapier can attach it. Stores that were already
+   emailed for the same month (emailLog in target-summary.json) start
+   unchecked, so a re-upload never double-sends by accident.              */
+const SEND={ running:false, done:false, period:'', failed:[], results:{} };
+
+function dirFullFor(key){
+  const dirStores=(DIR&&DIR.stores)||[];
+  return dirStores.find(function(s){ return normStore(shortName(s))===normStore(key); })||'';
+}
+function storeSendInfo(key){
+  const rec=(PARSED&&PARSED.stores&&PARSED.stores[key])||{}, t=rec.targets||{};
+  const full=dirFullFor(key), why=[];
+  if(!full) why.push('not in store directory');
+  if(!(rec.gp>0)) why.push('no GP goal');
+  if(!(t.dailyTraffic>0)) why.push('no traffic');
+  if(!(t.reps>0)) why.push('no reps');
+  let recipients=0;
+  if(full){ const D=DIR||{};
+    const r=routeEmail((D.storeManagers||{})[full]||'',(D.storeAMs||{})[full]||'',(D.storeDMs||{})[full]||'',emailList((D.storeEmployees||{})[full]));
+    recipients=1+r.cc.length; }
+  return { key, full, ready:!why.length, why:why.join(', '), recipients };
+}
+// stores already emailed for the month being uploaded, keyed by normalised name
+function priorSends(){
+  const L=SUMMARY&&SUMMARY.emailLog;
+  if(!L||!PARSED||L.month!==PARSED.month||+L.year!==+PARSED.year||!L.stores) return {};
+  const out={}; Object.keys(L.stores).forEach(function(k){ out[normStore(k)]=L.stores[k]; }); return out;
+}
+function whenText(iso){ const d=new Date(iso); return isNaN(d)?'':d.toLocaleDateString('en-US',{month:'numeric',day:'numeric'})+' '+d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}); }
+
+function renderPreview(){
+  const stores=PARSED.stores, keys=Object.keys(stores), prior=priorSends();
+  let t='<thead><tr><th class="ck"><input type="checkbox" id="ckAll" title="Select / clear all"></th><th>Store</th><th>DM</th><th>RD</th><th>NPS</th><th>Close Rate</th><th>GP $ (col F)</th><th>Mo. Traffic</th><th>Store XM @7%</th><th>Rep XM</th><th>Emails</th></tr></thead><tbody>';
+  keys.forEach(k=>{const s=stores[k];const g=s.targets||{};const gs=g.store||{};const gr=g.rep||{};
+    const info=storeSendInfo(k), sent=prior[normStore(k)];
+    const warn=(!g.dailyTraffic||!g.reps)?' style="color:#c0392b"':'';
+    const ck='<input type="checkbox" class="sendck" data-store="'+esc(k)+'"'+(info.ready?(sent?'':' checked'):' disabled')+'>';
+    const tags=(sent?'<span class="tag sent">emailed '+esc(whenText(sent))+'</span>':'')+(!info.ready?'<span class="tag skip">'+esc(info.why)+'</span>':'');
+    t+=`<tr><td class="ck">${ck}</td><td class="nm">${k}${tags}</td><td>${s.dm}</td><td>${s.rd}</td><td class="num">${s.nps}</td><td class="num">${s.closeRate}</td><td class="num">${money(s.gp||0)}</td><td class="num"${warn}>${num(g.monthlyTraffic||0)}</td><td class="num">${num(gs.xm||0)}</td><td class="num">${num(gr.xm||0)}</td><td class="num">${info.ready?info.recipients:'—'}</td></tr>`;});
+  t+='</tbody>';
+  const tbl=document.getElementById('previewTable'); tbl.innerHTML=t;
+  tbl.querySelectorAll('.sendck').forEach(function(cb){ cb.addEventListener('change',updateSaveBtn); });
+  document.getElementById('ckAll').addEventListener('change',function(){ const on=this.checked;
+    tbl.querySelectorAll('.sendck:not(:disabled)').forEach(function(cb){ cb.checked=on; }); updateSaveBtn(); });
+}
+function checkedStores(){ return Array.prototype.map.call(document.querySelectorAll('#previewTable .sendck:checked'),function(cb){ return cb.getAttribute('data-store'); }); }
+function updateSaveBtn(){
+  if(!PARSED||SEND.running||SEND.done) return;
+  const n=checkedStores().length, label=PARSED.month+' '+PARSED.year;
+  document.getElementById('saveBtn').textContent= n ? '⬆ Save '+label+' & Email '+n+' Store'+(n===1?'':'s') : '⬆ Save '+label+' (no emails)';
+  const all=document.querySelectorAll('#previewTable .sendck:not(:disabled)'), on=document.querySelectorAll('#previewTable .sendck:not(:disabled):checked');
+  const ca=document.getElementById('ckAll'); if(ca){ ca.checked=all.length&&on.length===all.length; ca.indeterminate=on.length>0&&on.length<all.length; }
+}
+function lockAdmin(on){
+  document.querySelectorAll('#previewTable input[type=checkbox]').forEach(function(cb){ if(on){ cb.dataset.wasDis=cb.disabled?'1':''; cb.disabled=true; } else { cb.disabled=cb.dataset.wasDis==='1'; } });
+  ['adminMonth','adminYear','xlsx'].forEach(function(id){ document.getElementById(id).disabled=on; });
+  document.getElementById('dropBox').style.pointerEvents=on?'none':'';
+  document.getElementById('dropBox').style.opacity=on?'.55':'';
+}
+function leaveGuard(e){ e.preventDefault(); e.returnValue='Target emails are still sending.'; return e.returnValue; }
+
+async function saveSummary(){
+  const payload={ updatedAt:new Date().toISOString(), month:PARSED.month, year:PARSED.year,
+    source:PARSED.sheet+' (cols A–F)', stores:PARSED.stores };
+  const L=SUMMARY&&SUMMARY.emailLog;   // keep this month's send history across re-uploads
+  if(L&&L.month===PARSED.month&&+L.year===+PARSED.year) payload.emailLog=L;
+  await proxyUpload([{ repo:GH.NAME, path:GH.PATH,
+    contentBase64:btoa(unescape(encodeURIComponent(JSON.stringify(payload,null,2)))),
+    message:`Update monthly target summary — ${PARSED.month} ${PARSED.year}` }]);
+  SUMMARY=payload;
+}
+async function writeEmailLog(keys){
+  if(!keys.length) return;
+  const L=(SUMMARY.emailLog&&SUMMARY.emailLog.month===PARSED.month&&+SUMMARY.emailLog.year===+PARSED.year)?SUMMARY.emailLog.stores:{};
+  const stores=Object.assign({},L); keys.forEach(function(k){ stores[k]=SEND.results[k].at; });
+  const payload=Object.assign({},SUMMARY,{ emailLog:{ month:PARSED.month, year:PARSED.year, stores:stores } });
+  await proxyUpload([{ repo:GH.NAME, path:GH.PATH,
+    contentBase64:btoa(unescape(encodeURIComponent(JSON.stringify(payload,null,2)))),
+    message:`Log target emails — ${keys.length} store${keys.length===1?'':'s'} — ${PARSED.month} ${PARSED.year}` }]);
+  SUMMARY=payload;
+}
+
+// render one store's sheet off-screen and send it, using the uploaded month and the fixed defaults
+async function sendStoreTargets(key,onStep){
+  const info=storeSendInfo(key); if(!info.ready) throw new Error(info.why);
+  const full=info.full, short=shortName(full), rec=PARSED.stores[key]||{}, D=DIR||{};
+  const roster=ROSTERS[short.toLowerCase()]||[];
+  let fcr=0; if(rec.closeRate!=null){ const cr=rec.closeRate; fcr=(cr<=1?cr*100:cr); }
+  const c=computeFor({ daily:TRAFFIC[short.toLowerCase()]||0, reps:roster.length, cr:DEFAULTS.closeRate, fcr:fcr,
+    gp:rec.gp, comm:DEFAULTS.commission, days:daysInMonthNamed(PARSED.month,PARSED.year), nps:DEFAULTS.nps });
+  const period=SEND.period, mgr=(D.storeManagerNames||{})[full]||'';
+  const stage=document.getElementById('sheetStage');
+  stage.innerHTML=sheetHTML(c,short,period,mgr,roster,'stageSheet');
+  const img=stage.querySelector('img'); if(img&&!img.complete) await new Promise(function(r){ img.onload=img.onerror=r; });
+  await sleep(50);
   try{
-    const payload={ updatedAt:new Date().toISOString(), month:PARSED.month, year:PARSED.year,
-      source:PARSED.sheet+' (cols A–F)', stores:PARSED.stores };
-    await proxyUpload([{ repo:GH.NAME, path:GH.PATH,
-      contentBase64:btoa(unescape(encodeURIComponent(JSON.stringify(payload,null,2)))),
-      message:`Update monthly target summary — ${PARSED.month} ${PARSED.year}` }]);
-    SUMMARY=payload;
-    st('saveStatus','✓ Saved <code>data/target-summary.json</code> for <b>'+PARSED.month+' '+PARSED.year+'</b>. Locked monthly targets (mobile @7%, watch/tablet, T-sheet, accessory, GP) are now live — the Manager tab and the Employee Scorecard both read these.','good');
-    b.textContent='✓ Saved'; prepareBlast();
-  }catch(e){ st('saveStatus','Save failed: '+e.message,'err'); b.disabled=false; b.textContent='⬆ Save to GitHub Repo'; }
+    return await deliverTargets({ c, short, period, mgr,
+      sm:(D.storeManagers||{})[full]||'', asm:(D.storeAMs||{})[full]||'', dm:(D.storeDMs||{})[full]||'',
+      addr:(D.storeAddresses||{})[full]||'', storeReps:emailList((D.storeEmployees||{})[full]),
+      roster, node:stage.firstElementChild, retries:1, onStep });
+  } finally { stage.innerHTML=''; }
+}
+
+function setItem(key,cls,txt){
+  const el=document.querySelector('#sendList .si[data-store="'+CSS.escape(key)+'"]'); if(!el) return;
+  el.className='si '+cls; el.querySelector('.s').textContent=txt;
+}
+async function runSends(keys){
+  SEND.running=true; SEND.period=PARSED.month+' '+PARSED.year;
+  const b=document.getElementById('saveBtn'), rb=document.getElementById('retryBtn'), wrap=document.getElementById('sendWrap');
+  b.disabled=true; rb.classList.add('hide'); lockAdmin(true);
+  window.addEventListener('beforeunload',leaveGuard);
+  const list=document.getElementById('sendList');
+  // keep earlier rows (a retry only re-queues the failed ones)
+  keys.forEach(function(k){ let el=list.querySelector('.si[data-store="'+CSS.escape(k)+'"]');
+    if(!el){ el=document.createElement('div'); el.setAttribute('data-store',k); el.innerHTML='<b>'+esc(k)+'</b><span class="s"></span>'; list.appendChild(el); }
+    el.className='si q'; el.querySelector('.s').textContent='Queued'; });
+  wrap.classList.remove('hide');
+  wrap.scrollIntoView({behavior:'smooth',block:'start'});
+  const sent=[], failed=[];
+  for(let i=0;i<keys.length;i++){
+    const k=keys[i];
+    b.textContent='Emailing '+(i+1)+' of '+keys.length+' — '+k+'…';
+    st('sendSummary','<b>Emailing store '+(i+1)+' of '+keys.length+'</b> for '+esc(SEND.period)+' — keep this tab open until it finishes.','warn');
+    setItem(k,'go','Building sheet…');
+    try{
+      const r=await sendStoreTargets(k,function(step){ setItem(k,'go',step==='pdf'?'Uploading PDF…':'Sending…'); });
+      SEND.results[k]={ ok:true, at:new Date().toISOString(), pdf:r.pdf, recipients:r.recipients };
+      setItem(k, r.pdf?'ok':'part', r.pdf?'✓ Sent · '+r.recipients:'✓ Sent · no PDF');
+      sent.push(k);
+      await sleep(400);   // gentle pace for Zapier → Outlook
+    }catch(e){
+      SEND.results[k]={ ok:false, err:(e&&e.message)?e.message:String(e) };
+      setItem(k,'bad','✗ '+SEND.results[k].err.slice(0,40));
+      failed.push(k);
+    }
+  }
+  let logNote='';
+  if(sent.length){ try{ await writeEmailLog(sent); }catch(e){ logNote='<br><span style="font-size:11px">Heads up: the emails went out, but the send log didn’t save ('+esc(e.message)+'), so a re-upload this month won’t know these stores were already emailed.</span>'; } }
+  window.removeEventListener('beforeunload',leaveGuard);
+  SEND.running=false; SEND.failed=failed;
+  const people=sent.reduce(function(n,k){ return n+(SEND.results[k].recipients||0); },0);
+  const noPdf=sent.filter(function(k){ return !SEND.results[k].pdf; });
+  let h='✓ Emailed <b>'+sent.length+'</b> of '+keys.length+' store'+(keys.length===1?'':'s')+' for <b>'+esc(SEND.period)+'</b> — '+people+' inboxes, at '+DEFAULTS.closeRate+'% Mobile Close Rate and '+money(DEFAULTS.commission)+' rep commission.';
+  if(noPdf.length) h+='<br><b style="color:#a96407">Sent without the PDF link:</b> '+noPdf.map(esc).join(' · ')+' — the targets are in the email body; use the Manager tab to resend with the PDF if needed.';
+  if(failed.length) h+='<br><b style="color:#c0392b">Not sent:</b> '+failed.map(function(k){ return esc(k)+' ('+esc(SEND.results[k].err)+')'; }).join(' · ');
+  st('sendSummary',h+logNote, failed.length?'err':(noPdf.length?'warn':'good'));
+  if(failed.length){ rb.classList.remove('hide'); rb.textContent='↻ Retry '+failed.length+' Failed Store'+(failed.length===1?'':'s'); rb.disabled=false; }
+  SEND.done=true;
+  b.textContent= failed.length ? '✓ Saved · '+sent.length+' emailed' : '✓ Saved & Emailed';
+  lockAdmin(false);
+  // after a run the picker stays read-only until a new file (or month) is loaded
+  document.querySelectorAll('#previewTable input[type=checkbox]').forEach(function(cb){ cb.disabled=true; });
+}
+async function retryFailed(){
+  if(SEND.running||!SEND.failed.length) return;
+  document.getElementById('retryBtn').disabled=true;
+  SEND.done=false;
+  await runSends(SEND.failed.slice());
+}
+
+async function saveAndEmailAll(){
+  if(!PARSED){alert('Upload a file first.');return;}
+  if(SEND.running||SEND.done) return;
+  const picks=checkedStores();
+  const b=document.getElementById('saveBtn'); b.disabled=true; b.textContent='Saving…';
+  try{ await saveSummary(); }
+  catch(e){ st('saveStatus','Save failed: '+e.message+' — no emails were sent.','err'); b.disabled=false; updateSaveBtn(); return; }
+  st('saveStatus','✓ Saved <code>data/target-summary.json</code> for <b>'+PARSED.month+' '+PARSED.year+'</b>. Locked monthly targets (mobile @7%, watch/tablet, T-sheet, accessory, GP) are now live — the Manager tab and the Employee Scorecard both read these.','good');
+  if(!picks.length){ SEND.done=true; b.textContent='✓ Saved (no emails sent)'; return; }
+  await runSends(picks);
 }
 </script>
 </body>
